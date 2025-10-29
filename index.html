@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Socket.IO chat</title>
+    <style>
+      body {
+        margin: 0;
+        padding-bottom: 3rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+
+      #form {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        height: 3rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+      }
+      #input {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+      #form1 {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        height: 3rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+        position: relative;
+      }
+
+      #inputTest {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+      #input:focus {
+        outline: none;
+      }
+      #form > button {
+        background: #333;
+        border: none;
+        padding: 0 1rem;
+        margin: 0.25rem;
+        border-radius: 3px;
+        outline: none;
+        color: #fff;
+      }
+
+      #messages {
+        list-style-type: none;
+        margin: 0;
+        padding: 0;
+      }
+      #messages > li {
+        padding: 0.5rem 1rem;
+      }
+      #messages > li:nth-child(odd) {
+        background: #efefef;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="form1" action="">
+      <input id="inputTest" autocomplete="off" placeholder="userId" />
+    </form>
+    <ul id="messages"></ul>
+    <form id="form" action="">
+      <input id="input" autocomplete="off" /><button>Send</button>
+      <button id="toggle-btn">Disconnect</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      //Server delivery connectionStateRecovery
+      const socket = io({
+        auth: {
+          serverOffset: 0,
+        },
+      });
+      // Acknowledgements With a Promise
+      async function sendRequest() {
+        try {
+          const response = await socket
+            .timeout(5000)
+            .emitWithAck("requestB", { foo: "bar" }, "baz");
+          console.log("requestB : ", response.status);
+        } catch (e) {
+          console.error("⛔ Timeout or no acknowledgment from server:", e);
+        }
+      }
+
+      sendRequest();
+
+      socket.on("connect", () => {
+        console.log("Connected:", socket.id);
+      });
+      const form = document.getElementById("form");
+      const input = document.getElementById("input");
+      const form1 = document.getElementById("form1");
+      const input1 = document.getElementById("inputTest");
+      const messages = document.getElementById("messages");
+      const toggleButton = document.getElementById("toggle-btn");
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (input.value && input1.value) {
+          socket.emit("chat message", input.value, input1.value, (response) => {
+            console.log("Client : ", response);
+          });
+          input.value = "";
+        } else {
+          socket.emit("chat message", input.value, null, (response) => {
+            console.log("Client : ", response);
+          });
+          input.value = "";
+        }
+      });
+
+      toggleButton.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (socket.connected) {
+          toggleButton.innerText = "Connect";
+          socket.disconnect();
+        } else {
+          toggleButton.innerText = "Disconnect";
+          socket.connect();
+        }
+      });
+
+      socket.on("chat message", (data, serverOffset) => {
+        console.log("message front: " + data);
+        const { id, msg } = data;
+        const item = document.createElement("li");
+        item.textContent = `${id} say : ${msg}`;
+        messages.appendChild(item);
+        window.scrollTo(0, document.body.scrollHeight);
+        //Server delivery connectionStateRecovery
+        socket.auth.serverOffset = serverOffset;
+      });
+      //Basic emit
+      socket.emit("hello", 1, "2", { 3: "4", 5: Uint8Array.from([6]) });
+      //Acknowledgements
+      socket.on("request", (arg1, arg2, callback) => {
+        console.log(arg1); // { foo: 'bar' }
+        console.log(arg2); // 'baz'
+        callback({
+          status: "ok",
+        });
+      });
+
+      //Broadcasting
+      socket.on("user joined", (data, callback) => {
+        console.log("user joined", data.id);
+        callback(`Welcome ${data.id}!`);
+      });
+    </script>
+  </body>
+</html>
