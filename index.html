@@ -88,11 +88,19 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
+      // Client delivery
+
+      let counter = 0;
+
       //Server delivery connectionStateRecovery
       const socket = io({
         auth: {
           serverOffset: 0,
         },
+        // Client delivery
+        // enable retries
+        ackTimeout: 10000,
+        retries: 3,
       });
       // Acknowledgements With a Promise
       async function sendRequest() {
@@ -121,15 +129,33 @@
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         if (input.value && input1.value) {
-          socket.emit("chat message", input.value, input1.value, (response) => {
-            console.log("Client : ", response);
-          });
+          const clientOffset = `${socket.id}-${counter++}`;
+
+          socket.emit(
+            "chat message",
+            input.value,
+            input1.value,
+            clientOffset,
+            (response) => {
+              console.log("Client : ", response);
+            }
+          );
           input.value = "";
         } else {
-          socket.emit("chat message", input.value, null, (response) => {
-            console.log("Client : ", response);
-          });
+          const clientOffset = `${socket.id}-${counter++}`;
+          socket.emit(
+            "chat message",
+            input.value,
+            null,
+            clientOffset,
+            (response) => {
+              console.log("Client : ", response);
+            }
+          );
+          // Client delivery
+          // compute a unique offset
           input.value = "";
+          console.log("🚀 auth ~ serverOffset:", socket.auth);
         }
       });
 
@@ -148,7 +174,7 @@
         console.log("message front: " + data);
         const { id, msg } = data;
         const item = document.createElement("li");
-        item.textContent = `${id} say : ${msg}`;
+        item.textContent = msg;
         messages.appendChild(item);
         window.scrollTo(0, document.body.scrollHeight);
         //Server delivery connectionStateRecovery

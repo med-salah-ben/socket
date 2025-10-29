@@ -34,12 +34,7 @@ async function main() {
 
   io.on("connection", async (socket) => {
     console.log("a user connected");
-    console.log(
-      socket.recovered
-        ? `♻️ Recovered session: ${socket.id}`
-        : `🆕 New session: ${socket.id}`
-    );
-    socket.emit("session", { sessionId: socket.id });
+    console.log(`🆕 New session: ${socket.id}`);
 
     socket.on("disconnect", () => {
       console.log("user disconnected");
@@ -55,22 +50,31 @@ async function main() {
         if (err) {
           console.log("⚠️ Some clients did not respond in time");
         } else {
-          console.log("✅ Clients responded:", responses);
+          // console.log("✅ Clients responded:", responses);
         }
       });
     // Rooms
-    socket.on("chat message", async (msg, targetId, callback) => {
+    socket.on("chat message", async (msg, targetId, clientOffset, callback) => {
       let result;
       try {
         // store the message in the database
-        result = await db.run("INSERT INTO messages (content) VALUES (?)", msg);
+        result = await db.run(
+          "INSERT INTO messages (content, client_offset) VALUES (?, ?)",
+          msg,
+          clientOffset
+        );
+        console.log("🚀 ~ main ~ result:", result);
       } catch (e) {
-        // TODO handle the failure
+        if (e.errno === 19 /* SQLITE_CONSTRAINT */) {
+          console.log("🚀 ~ main ~ 19:", 19);
+          // the message was already inserted, so we notify the client
+          callback("got it");
+        } else {
+          // nothing to do, just let the client retry
+          console.log("🚀 ~ main ~ 20:", 20);
+        }
         return;
       }
-
-      console.log("💬 Message:", msg, "to:", targetId);
-      console.log("🚀 ~ main ~ msg:", msg);
       if (targetId) {
         //Join room with targetId to see the msg from the sender
         socket.join(targetId);
@@ -87,6 +91,7 @@ async function main() {
       callback("got it");
     });
     if (!socket.recovered) {
+      console.log("🚀 ~ main ~ handshake:", socket.handshake.auth)
       // if the connection state recovery was not successful
       try {
         await db.each(
@@ -105,9 +110,9 @@ async function main() {
     }
     //Basic emit
     socket.on("hello", (arg1, arg2, arg3) => {
-      console.log(arg1);
-      console.log(arg2);
-      console.log(arg3);
+      // console.log(arg1);
+      // console.log(arg2);
+      // console.log(arg3);
     });
     //Acknowledgements
     socket
@@ -126,12 +131,12 @@ async function main() {
     // Catch-all listeners
     // This fires for every event received from the client
     socket.onAny((eventName, ...args) => {
-      console.log("➡️ Catch eventName : ", eventName); // 'hello'
-      console.log("➡️ Catch ARGS : ", args); // [ 1, '2', { 3: '4', 5: ArrayBuffer (1) [ 6 ] } ]
+      // console.log("➡️ Catch eventName : ", eventName); // 'hello'
+      // console.log("➡️ Catch ARGS : ", args); // [ 1, '2', { 3: '4', 5: ArrayBuffer (1) [ 6 ] } ]
     });
     // This fires for every event sent to the client
     socket.onAnyOutgoing((eventName, ...args) => {
-      console.log("➡️ Catch Outgoing:", eventName, args);
+      // console.log("➡️ Catch Outgoing:", eventName, args);
     });
   });
   server.listen(3000, () => {
