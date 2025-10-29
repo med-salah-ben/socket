@@ -91,6 +91,7 @@
       // Client delivery
 
       let counter = 0;
+      let count = 0;
 
       //Server delivery connectionStateRecovery
       const socket = io({
@@ -102,6 +103,11 @@
         ackTimeout: 10000,
         retries: 3,
       });
+
+      // setInterval(() => {
+      //   socket.volatile.emit("ping send", ++count);
+      // }, 1000);
+
       // Acknowledgements With a Promise
       async function sendRequest() {
         try {
