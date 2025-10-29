@@ -4,16 +4,13 @@ const { join } = require("node:path");
 const { Server } = require("socket.io");
 const sqlite3 = require("sqlite3");
 const { open } = require("sqlite");
+const { availableParallelism } = require("node:os");
+const cluster = require("node:cluster");
+const { createAdapter, setupPrimary } = require("@socket.io/cluster-adapter");
+require("dotenv").config();
 
-//Server delivery connectionStateRecovery
-
-async function main() {
-  const db = await open({
-    filename: "chat.db",
-    driver: sqlite3.Database,
-  });
-
-  // create our 'messages' table (you can ignore the 'client_offset' column for now)
+async function initDB() {
+  const db = await open({ filename: "chat.db", driver: sqlite3.Database });
   await db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,11 +18,33 @@ async function main() {
         content TEXT
     );
   `);
+  return db;
+}
+
+if (cluster.isPrimary) {
+  const numCPUs = Math.min(availableParallelism(), 4);
+  // create one worker per available core
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork({
+      PORT: 3000 + i,
+    });
+  }
+
+  // set up the adapter on the primary thread
+  return setupPrimary();
+}
+
+async function main() {
+  const db = await initDB();
+  await db.exec("PRAGMA journal_mode=WAL");
+
   const app = express();
   const server = createServer(app);
   const io = new Server(server, {
     //Connection state recovery
     connectionStateRecovery: {},
+    // set up the adapter on each worker thread
+    adapter: createAdapter(),
   });
 
   app.get("/", (req, res) => {
@@ -34,12 +53,11 @@ async function main() {
 
   io.on("connection", async (socket) => {
     console.log("a user connected");
-    console.log(
-      socket.recovered
-        ? `♻️ Recovered session: ${socket.id}`
-        : `🆕 New session: ${socket.id}`
-    );
-    socket.emit("session", { sessionId: socket.id });
+    console.log(`🆕 New session: ${socket.id}`);
+
+    // socket.on("ping send", (count) => {
+    //   console.log("ping count receive : ", count);
+    // });
 
     socket.on("disconnect", () => {
       console.log("user disconnected");
@@ -59,18 +77,27 @@ async function main() {
         }
       });
     // Rooms
-    socket.on("chat message", async (msg, targetId, callback) => {
+    socket.on("chat message", async (msg, targetId, clientOffset, callback) => {
       let result;
       try {
         // store the message in the database
-        result = await db.run("INSERT INTO messages (content) VALUES (?)", msg);
+        result = await db.run(
+          "INSERT INTO messages (content, client_offset) VALUES (?, ?)",
+          msg,
+          clientOffset
+        );
+        console.log("🚀 ~ main ~ result:", result);
       } catch (e) {
-        // TODO handle the failure
+        if (e.errno === 19 /* SQLITE_CONSTRAINT */) {
+          console.log("🚀 ~ main ~ 19:", 19);
+          // the message was already inserted, so we notify the client
+          callback("got it");
+        } else {
+          // nothing to do, just let the client retry
+          console.log("🚀 ~ main ~ 20:", 20);
+        }
         return;
       }
-
-      console.log("💬 Message:", msg, "to:", targetId);
-      console.log("🚀 ~ main ~ msg:", msg);
       if (targetId) {
         //Join room with targetId to see the msg from the sender
         socket.join(targetId);
@@ -87,6 +114,7 @@ async function main() {
       callback("got it");
     });
     if (!socket.recovered) {
+      console.log("🚀 ~ main ~ handshake:", socket.handshake.auth);
       // if the connection state recovery was not successful
       try {
         await db.each(
@@ -105,9 +133,9 @@ async function main() {
     }
     //Basic emit
     socket.on("hello", (arg1, arg2, arg3) => {
-      console.log(arg1);
-      console.log(arg2);
-      console.log(arg3);
+      // console.log(arg1);
+      // console.log(arg2);
+      // console.log(arg3);
     });
     //Acknowledgements
     socket
@@ -126,16 +154,20 @@ async function main() {
     // Catch-all listeners
     // This fires for every event received from the client
     socket.onAny((eventName, ...args) => {
-      console.log("➡️ Catch eventName : ", eventName); // 'hello'
-      console.log("➡️ Catch ARGS : ", args); // [ 1, '2', { 3: '4', 5: ArrayBuffer (1) [ 6 ] } ]
+      // console.log("➡️ Catch eventName : ", eventName); // 'hello'
+      // console.log("➡️ Catch ARGS : ", args); // [ 1, '2', { 3: '4', 5: ArrayBuffer (1) [ 6 ] } ]
     });
     // This fires for every event sent to the client
     socket.onAnyOutgoing((eventName, ...args) => {
-      console.log("➡️ Catch Outgoing:", eventName, args);
+      // console.log("➡️ Catch Outgoing:", eventName, args);
     });
   });
-  server.listen(3000, () => {
-    console.log("server running at http://localhost:3000");
+
+  // each worker will listen on a distinct port
+  const port = process.env.PORT;
+
+  server.listen(port, () => {
+    console.log(`server running at http://localhost:${port}`);
   });
 }
 
