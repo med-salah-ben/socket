@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Socket.IO /link Chat</title>
+    <style>
+      body {
+        margin: 0;
+        padding-bottom: 3rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      #form {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        height: 3rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+      }
+      #input {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+      #form > button {
+        background: #333;
+        border: none;
+        padding: 0 1rem;
+        margin: 0.25rem;
+        border-radius: 3px;
+        outline: none;
+        color: #fff;
+      }
+      #messages {
+        list-style-type: none;
+        margin: 2rem 0 0 0;
+        padding: 1.5rem 0;
+      }
+      #messages > li {
+        padding: 0.5rem 1rem;
+      }
+      #messages > li:nth-child(odd) {
+        background: #efefef;
+      }
+      #messages > li.sent {
+        background: #d4edda;
+      }
+      #messages > li.received {
+        background: #d1ecf1;
+      }
+      #form1 {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        height: 3rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+        position: fixed;
+      }
+      #targetInput {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+      #userInfo {
+        position: fixed;
+        top: 3.5rem;
+        left: 0;
+        right: 0;
+        background: #f0f0f0;
+        padding: 0.5rem 1rem;
+        text-align: center;
+        font-weight: bold;
+      }
+      #mainBtn {
+        position: fixed;
+        right: 0;
+        padding: 0 10px;
+        margin-top: 2rem;
+        background: #f5f5f5;
+        color: #333;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="form1">
+      <input
+        id="targetInput"
+        autocomplete="off"
+        placeholder="Target Name (leave empty for broadcast)"
+      />
+    </form>
+    <div id="userInfo">Not logged in</div>
+    <a href="/" id="mainBtn">Go back to login</a>
+    <ul id="messages"></ul>
+    <form id="form" action="">
+      <input id="input" autocomplete="off" placeholder="Type message..." />
+      <button>Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const messages = document.getElementById("messages");
+      const input = document.getElementById("input");
+      const form = document.getElementById("form");
+      const targetInput = document.getElementById("targetInput");
+      const userInfo = document.getElementById("userInfo");
+
+      // Get username from URL parameter or localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      const username =
+        urlParams.get("username") || localStorage.getItem("username");
+
+      if (!username) {
+        alert("Please login first!");
+        window.location.href = "/";
+      }
+      localStorage.setItem("username", username);
+      userInfo.textContent = `Logged in as: ${username}`;
+
+      console.log("🚀 ~ senderInput:", username);
+      // Base /link namespace connection
+      const nsp1Socket = io("/test1", {
+        auth: {
+          serverOffset: 0,
+          username: username,
+        },
+        // Client delivery
+        // enable retries
+        ackTimeout: 10000,
+        retries: 3,
+      });
+
+      nsp1Socket.on("connect", () => {
+        console.log("Connected to /nsp2:", nsp1Socket.id);
+        nsp1Socket.emit("login", username);
+      });
+
+      nsp1Socket.on("get msg", (data, serverOffset) => {
+        console.log("get message front: ", data);
+        messages.innerHTML = "";
+        data.forEach((el) => {
+          const isRelevant =
+            !el.targetName || // Broadcast message
+            el.targetName === username || // Message sent to me
+            el.senderName === username; // Message I sent
+          if (isRelevant) {
+            addMessageToDOM(el.content, el.senderName, el.targetName);
+          }
+        });
+        window.scrollTo(0, document.body.scrollHeight);
+        //Server delivery connectionStateRecovery
+        nsp1Socket.auth.serverOffset = serverOffset;
+        console.log("nsp1Socket.auth /nsp2:", nsp1Socket.auth.username);
+      });
+
+      let counter = 0;
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (input.value && targetInput.value) {
+          const clientOffset = `${nsp1Socket.id}-${counter++}`;
+
+          nsp1Socket.emit(
+            "chatMessage",
+            input.value,
+            targetInput.value,
+            clientOffset,
+            (response) => {
+              console.log("Client : ", response);
+            }
+          );
+          input.value = "";
+        } else {
+          const clientOffset = `${nsp1Socket.id}-${counter++}`;
+          nsp1Socket.emit(
+            "chatMessage",
+            input.value,
+            null,
+            clientOffset,
+            (response) => {
+              console.log("Client : ", response);
+            }
+          );
+          // Client delivery
+          // compute a unique offset
+          input.value = "";
+          console.log("🚀 auth ~ serverOffset:", nsp1Socket.auth);
+        }
+      });
+
+      // Namespace event
+      nsp1Socket.on("chatMessage", (data, serverOffset) => {
+        console.log("message front: " + JSON.stringify(data));
+        const { content } = data;
+        const item = document.createElement("li");
+        item.textContent = content;
+        messages.appendChild(item);
+        window.scrollTo(0, document.body.scrollHeight);
+        //Server delivery connectionStateRecovery
+        nsp1Socket.auth.serverOffset = serverOffset;
+      });
+    </script>
+  </body>
+</html>

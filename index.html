@@ -77,6 +77,10 @@
     </style>
   </head>
   <body>
+    <a href="/" id="mainBtn">Connect to /main chat</a>
+    <a href="/test1" id="nps1Btn">Connect to /nps1</a>
+    <a href="/test2" id="nps2Btn">Connect to /nps2</a>
+    <!-- <div id="output"></div> -->
     <form id="form1" action="">
       <input id="inputTest" autocomplete="off" placeholder="userId" />
     </form>
@@ -108,6 +112,15 @@
       //   socket.volatile.emit("ping send", ++count);
       // }, 1000);
 
+      //Namespaces
+      // const nps1 = io("/test1");
+      // const nps2 = io("/test2");
+      let nps1Socket;
+      let nps2Socket;
+
+      // const socket1 = io("http://localhost:3000/test1", { forceNew: false  });
+      // const socket2 = io("http://localhost:3000/test2", { forceNew: false  });
+
       // Acknowledgements With a Promise
       async function sendRequest() {
         try {
@@ -127,10 +140,53 @@
       });
       const form = document.getElementById("form");
       const input = document.getElementById("input");
-      const form1 = document.getElementById("form1");
       const input1 = document.getElementById("inputTest");
       const messages = document.getElementById("messages");
       const toggleButton = document.getElementById("toggle-btn");
+      const output = document.getElementById("output");
+
+      document.getElementById("nps1Btn").onclick = () => {
+        if (nps2Socket && nps2Socket.connected) {
+          nps2Socket.disconnect();
+          output.innerHTML += `<p>[nps2] disconnected</p>`;
+        }
+        if (socket.connected) {
+          toggleButton.innerText = "Connect";
+          socket.disconnect();
+          output.innerHTML += `<p>[Main Chat] disconnected</p>`;
+        }
+
+        if (!nps1Socket || !nps1Socket.connected) {
+          nps1Socket = io("/test1");
+          nps1Socket.on("welcome", (msg) => {
+            output.innerHTML += `<p>[nps1] ${msg}</p>`;
+          });
+        } else {
+          output.innerHTML += `<p>[nps1] already connected</p>`;
+        }
+      };
+
+      document.getElementById("nps2Btn").onclick = () => {
+        // 👇 disconnect from /test1 first if needed
+        if (nps1Socket && nps1Socket.connected) {
+          nps1Socket.disconnect();
+          output.innerHTML += `<p>[nps1] disconnected</p>`;
+        }
+        if (socket.connected) {
+          toggleButton.innerText = "Connect";
+          socket.disconnect();
+          output.innerHTML += `<p>[Main Chat] disconnected</p>`;
+        }
+        // then connect to /test2
+        if (!nps2Socket || !nps2Socket.connected) {
+          nps2Socket = io("/test2");
+          nps2Socket.on("welcome", (msg) => {
+            output.innerHTML += `<p>[nps2] ${msg}</p>`;
+          });
+        } else {
+          output.innerHTML += `<p>[nps2] already connected</p>`;
+        }
+      };
 
       form.addEventListener("submit", (e) => {
         e.preventDefault();
@@ -167,12 +223,21 @@
 
       toggleButton.addEventListener("click", (e) => {
         e.preventDefault();
+        if (nps1Socket && nps1Socket.connected) {
+          nps1Socket.disconnect();
+          output.innerHTML += `<p>[nps1] disconnected</p>`;
+        }
+        if (nps2Socket && nps2Socket.connected) {
+          nps2Socket.disconnect();
+          output.innerHTML += `<p>[nps2] disconnected</p>`;
+        }
         if (socket.connected) {
           toggleButton.innerText = "Connect";
           socket.disconnect();
         } else {
           toggleButton.innerText = "Disconnect";
           socket.connect();
+          output.innerHTML += `<p>[Main Chat] connected</p>`;
         }
       });
 

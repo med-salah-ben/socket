@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Socket.IO /link Chat</title>
+    <style>
+      body {
+        margin: 0;
+        padding-bottom: 3rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      #form {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        height: 3rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+      }
+      #input {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+      #form > button {
+        background: #333;
+        border: none;
+        padding: 0 1rem;
+        margin: 0.25rem;
+        border-radius: 3px;
+        outline: none;
+        color: #fff;
+      }
+      #messages {
+        list-style-type: none;
+        margin: 2rem 0 0 0;
+        padding: 1.5rem 0;
+      }
+      #messages > li {
+        padding: 0.5rem 1rem;
+      }
+      #messages > li:nth-child(odd) {
+        background: #efefef;
+      }
+      #messages > li.sent {
+        background: #d4edda;
+      }
+      #messages > li.received {
+        background: #d1ecf1;
+      }
+      #form1 {
+        background: rgba(0, 0, 0, 0.15);
+        padding: 0.25rem;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        height: 3rem;
+        box-sizing: border-box;
+        backdrop-filter: blur(10px);
+        position: fixed;
+      }
+      #targetInput {
+        border: none;
+        padding: 0 1rem;
+        flex-grow: 1;
+        border-radius: 2rem;
+        margin: 0.25rem;
+      }
+      #userInfo {
+        position: fixed;
+        top: 3.5rem;
+        left: 0;
+        right: 0;
+        background: #f0f0f0;
+        padding: 0.5rem 1rem;
+        text-align: center;
+        font-weight: bold;
+      }
+      #mainBtn {
+        position: fixed;
+        right: 0;
+        padding: 0 10px;
+        margin-top: 2rem;
+        background: #f5f5f5;
+        color: #333;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="form1">
+      <input
+        id="targetInput"
+        autocomplete="off"
+        placeholder="Target Name (leave empty for broadcast)"
+      />
+    </form>
+    <div id="userInfo">Not logged in</div>
+    <a href="/" id="mainBtn">Go back to login</a>
+    <ul id="messages"></ul>
+    <form id="form" action="">
+      <input id="input" autocomplete="off" placeholder="Type message..." />
+      <button>Send</button>
+    </form>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const messages = document.getElementById("messages");
+      const input = document.getElementById("input");
+      const form = document.getElementById("form");
+      const targetInput = document.getElementById("targetInput");
+      const userInfo = document.getElementById("userInfo");
+
+      // Get username from URL parameter or localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      const username =
+        urlParams.get("username") || localStorage.getItem("username");
+
+      if (!username) {
+        alert("Please login first!");
+        window.location.href = "/";
+      }
+      localStorage.setItem("username", username);
+      userInfo.textContent = `Logged in as: ${username}`;
+
+      console.log("🚀 ~ senderInput:", username);
+      // Base /link namespace connection
+      const nsp2Socket = io("/test2", {
+        auth: {
+          serverOffset: 0,
+          username: username,
+        },
+        // Client delivery
+        // enable retries
+        ackTimeout: 10000,
+        retries: 3,
+      });
+
+      nsp2Socket.on("connect", () => {
+        console.log("Connected to /nsp2:", nsp2Socket.id);
+        nsp2Socket.emit("login", username);
+      });
+
+      nsp2Socket.on("get msg", (data, serverOffset) => {
+        console.log("get message front: ", data);
+        messages.innerHTML = "";
+        data.forEach((el) => {
+          const isRelevant =
+            !el.targetName || // Broadcast message
+            el.targetName === username || // Message sent to me
+            el.senderName === username; // Message I sent
+          if (isRelevant) {
+            addMessageToDOM(el.content, el.senderName, el.targetName);
+          }
+        });
+        window.scrollTo(0, document.body.scrollHeight);
+        //Server delivery connectionStateRecovery
+        nsp2Socket.auth.serverOffset = serverOffset;
+        console.log("nsp2Socket.auth /nsp2:", nsp2Socket.auth.username);
+      });
+
+      let counter = 0;
+
+      // Send message to /nsp2
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const clientOffset = `${nsp2Socket.id}-${counter++}`;
+        const targetName = targetInput.value.trim() || null;
+        if (input.value) {
+          nsp2Socket.emit(
+            "chat message nsp2",
+            input.value,
+            targetName,
+            clientOffset,
+            "/test2"
+          );
+          input.value = "";
+        }else{
+          alert("empty msg")
+        }
+      });
+
+      // Namespace event
+      nsp2Socket.on("chat message nsp2", (data, serverOffset) => {
+        console.log("message front: " + data);
+        const { content, senderName, targetName } = data;
+        const isRelevant =
+          !targetName || // Broadcast message
+          targetName === username || // Message sent to me
+          senderName === username; // Message I sent
+
+        if (isRelevant) {
+          addMessageToDOM(content, senderName, targetName);
+          window.scrollTo(0, document.body.scrollHeight);
+        }
+        //Server delivery connectionStateRecovery
+        nsp2Socket.auth.serverOffset = serverOffset;
+      });
+      function addMessageToDOM(content, senderName, targetName) {
+        const item = document.createElement("li");
+
+        let messageText = "";
+        if (targetName) {
+          messageText = `${senderName} → ${targetName}: ${content}`;
+          // Color code based on whether we're sender or receiver
+          if (senderName === username) {
+            item.className = "sent";
+          } else {
+            item.className = "received";
+          }
+        } else {
+          messageText = `${senderName}: ${content}`;
+        }
+
+        item.textContent = messageText;
+        messages.appendChild(item);
+      }
+    </script>
+  </body>
+</html>
