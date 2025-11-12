@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Socket.IO Login</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 2rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .container {
+        background: white;
+        padding: 2rem;
+        border-radius: 10px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+        max-width: 400px;
+        width: 100%;
+      }
+      h1 {
+        margin: 0 0 1.5rem 0;
+        color: #333;
+        text-align: center;
+      }
+      #sender-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      #senderInput {
+        border: 2px solid #ddd;
+        padding: 0.75rem 1rem;
+        border-radius: 5px;
+        font-size: 16px;
+        transition: border-color 0.3s;
+      }
+      #senderInput:focus {
+        outline: none;
+        border-color: #667eea;
+      }
+      button {
+        background: #667eea;
+        border: none;
+        padding: 0.75rem 1rem;
+        border-radius: 5px;
+        color: white;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+      button:hover {
+        background: #5568d3;
+      }
+      .nav-links {
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid #eee;
+      }
+      .nav-links h3 {
+        margin: 0 0 1rem 0;
+        color: #666;
+        font-size: 14px;
+        text-align: center;
+      }
+      .nav-links a {
+        display: block;
+        padding: 0.5rem 1rem;
+        margin: 0.5rem 0;
+        background: #f5f5f5;
+        color: #333;
+        text-decoration: none;
+        border-radius: 5px;
+        text-align: center;
+        transition: background 0.3s;
+      }
+      .nav-links a:hover {
+        background: #e0e0e0;
+      }
+      .error {
+        color: #e74c3c;
+        font-size: 14px;
+        margin-top: 0.5rem;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Welcome to Socket.IO Chat</h1>
+      <form id="sender-form">
+        <input
+          id="senderInput"
+          autocomplete="off"
+          placeholder="Enter your username"
+          required
+          minlength="2"
+        />
+        <button id="login-btn" type="submit">Login</button>
+
+        <div class="error" id="error">Please enter a valid username</div>
+      </form>
+      <div class="nav-links">
+        <h3>Visit:</h3>
+        <a href="/test-0" id="mainBtn">Main Chat</a>
+        <a href="/test-1" id="nps1Btn">Test1 Namespace</a>
+        <a href="/test-2" id="nps1Btn">Test2 Namespace</a>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const senderInput = document.getElementById("senderInput");
+      const form = document.getElementById("sender-form");
+      const loginBtn = document.getElementById("login-btn");
+      const errorDiv = document.getElementById("error");
+
+      let islogged = false;
+      // Check if already logged in
+      const storedUsername = localStorage.getItem("username");
+      if (storedUsername) {
+        senderInput.value = storedUsername;
+        loginBtn.innerHTML = "Logout";
+      } else {
+        loginBtn.innerHTML = "Login";
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        const username = senderInput.value.trim();
+
+        if (username.length < 2) {
+          errorDiv.style.display = "block";
+          errorDiv.textContent = "Username must be at least 2 characters";
+          return;
+        }
+        if (localStorage.getItem("username")) {
+          localStorage.removeItem("username");          
+          senderInput.value = "";
+          loginBtn.innerHTML = "Login";
+          console.log("🚀 ~ storedUsername remove:", storedUsername);
+        } else {
+          // Store username
+          localStorage.setItem("username", username);
+          loginBtn.innerHTML = "Logout";
+          console.log("🚀 ~ storedUsername set:", storedUsername);
+        }
+      });
+
+      // Hide error on input
+      senderInput.addEventListener("input", () => {
+        errorDiv.style.display = "none";
+      });
+    </script>
+  </body>
+</html>

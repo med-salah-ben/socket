@@ -44,11 +44,12 @@ connect / 1 / 2 / **the server is restarted, the client automatically reconnects
 
 Socket.IO provides a convenient way to send an event and receive a response:  
 Add a callback as the last argument of the `emit()`:
-
+//if no callback func, the client never receives an “OK” from the server, so Socket.IO retries 3 times, and i get 4 logs and lose performance and time.  
 // Sender
 callbackFunc : (response) => ...
 // Receiver
 callback : callback("got it");
+
 
 ---
 
@@ -66,7 +67,45 @@ io.to("RoomName").emit("eventName", data);
 ---
 
 ## 6. Multiplexing
+**dynamic namespaces**  
 Socket.IO namespaces enable logical separation of features over one connection, such as defining an ‘admin’ area for authorized users.
+Scalable: Automatically handles new namespaces without code changes
+DRY principle: Single handler for multiple similar namespaces
+Flexible: Easy to create namespace-specific chat rooms or channels
+
+**Benefits:** 
+
+Single WebSocket connection handles multiple channels  
+Isolated event handlers per namespace  
+Better organization of application logic  
+Reduced overhead compared to multiple connections  
+
+Creates namespaces matching the pattern /test-0, /test-1, /test-2, etc.
+Uses a regular expression to match any namespace starting with /test- followed by digits
+All matching namespaces share the same connection handler logic
+
+namespace.emit("chat message nsp2", messageData);
+// This sends events TO all clients in the namespace
+```
+
+**What it does** 
+- Broadcasts events TO multiple clients (or all clients)
+- Sends data from server to clients
+- It's like making an announcement to EVERYONE
+
+## Visual Comparison
+```
+┌─────────────────────────────────────────────────────────┐
+│                    SERVER                                │
+│                                                          │
+│  socketNsp2.on("message")  ←── Listens to ONE client   │
+│         ↓                                                │
+│    Process message                                       │
+│         ↓                                                │
+│  namespace.emit("message") ──→ Sends to ALL clients     │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+
 
 ---
 

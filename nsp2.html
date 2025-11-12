@@ -84,16 +84,6 @@
         text-align: center;
         font-weight: bold;
       }
-      #typing {
-        position: fixed;
-        bottom: 3.5rem;
-        left: 0;
-        right: 0;
-        background: #f0f0f0;
-        padding: 0.5rem 1rem;
-        text-align: center;
-        font-weight: bold;
-      }
       #mainBtn {
         position: fixed;
         right: 0;
@@ -106,21 +96,19 @@
     </style>
   </head>
   <body>
-    <div id="form1">
+    <form id="form1">
       <input
         id="targetInput"
         autocomplete="off"
         placeholder="Target Name (leave empty for broadcast)"
       />
-    </div>
+    </form>
     <div id="userInfo">Not logged in</div>
     <a href="/" id="mainBtn">Go back to login</a>
     <ul id="messages"></ul>
     <form id="form" action="">
-      <label id="typing"></label>
       <input id="input" autocomplete="off" placeholder="Type message..." />
       <button>Send</button>
-      <button id="toggle-btn">Disconnect</button>
     </form>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -128,14 +116,13 @@
       const messages = document.getElementById("messages");
       const input = document.getElementById("input");
       const form = document.getElementById("form");
-      const typingLabel = document.getElementById("typing");
       const targetInput = document.getElementById("targetInput");
       const userInfo = document.getElementById("userInfo");
-      const toggleButton = document.getElementById("toggle-btn");
 
       // Get username from URL parameter or localStorage
-      // const urlParams = new URLSearchParams(window.location.search);
-      const username = localStorage.getItem("username");
+      const urlParams = new URLSearchParams(window.location.search);
+      const username =
+        urlParams.get("username") || localStorage.getItem("username");
 
       if (!username) {
         alert("Please login first!");
@@ -146,17 +133,15 @@
 
       console.log("🚀 ~ senderInput:", username);
       // Base /link namespace connection
-      const nsp2Socket = io("/test-0", {
+      const nsp2Socket = io("/test-2", {
         auth: {
           serverOffset: 0,
           username: username,
         },
         // Client delivery
         // enable retries
-        //no callback, the client never receives an “OK” from the server, so Socket.IO retries 3 times, and i get 4 logs and lose performance and time;
-        // if i need Client delivery i shoud enable retries and give acknowledgement  callback from the server
-        ackTimeout: 10000,
-        retries: 3,
+        // ackTimeout: 10000,
+        // retries: 3,
       });
 
       let hasLoggedIn = false;
@@ -182,6 +167,7 @@
             window.scrollTo(0, document.body.scrollHeight);
             //Server delivery connectionStateRecovery
             nsp2Socket.auth.serverOffset = serverOffset;
+            console.log("nsp2Socket.auth /nsp2:", nsp2Socket.auth.username);
           });
           console.log("🚀 ~ hasLoggedIn:", hasLoggedIn);
         }
@@ -189,48 +175,22 @@
 
       nsp2Socket.on("disconnect", () => {
         hasLoggedIn = false; // Reset on disconnect
-        console.log("🚀 ~ hasLoggedIn:", hasLoggedIn);
+        console.log("🚀 ~ hasLoggedIn:", hasLoggedIn)
       });
 
       let counter = 0;
-      input.addEventListener("keydown", function (e) {
-        // e.preventDefault();
 
-        console.log("Key pressed:", e.key);
-        //Send to Everyone Except Sender
-        nsp2Socket.emit("user typing", username, targetInput.value);
-      });
-      // input.addEventListener("keyup", function (event) {
-      //   console.log("Key up:", event.key);
-      //   // nsp2Socket.of("user typing");
-      //   typingTimeout = setTimeout(() => {
-      //     nsp2Socket.emit("stop typing", username);
-      //   }, 1000);
-      //   typingLabel.innerHTML = "";
-      // });
-      nsp2Socket.on("user typing", (typingUser) => {
-        typingLabel.innerHTML = `${typingUser} typing...`;
-        typingTimeout = setTimeout(() => {
-          typingLabel.innerHTML = "";
-        }, 2000);
-      });
-      // nsp2Socket.on("stop typing", (user) => {
-      //   typingLabel.innerHTML = "";
-      // });
       // Send message to /nsp2
       form.addEventListener("submit", (e) => {
         e.preventDefault();
         const clientOffset = `${nsp2Socket.id}-${counter++}`;
         const targetName = targetInput.value.trim() || null;
         if (input.value) {
-          console.log(`sending msg from ${username}`);
-
           nsp2Socket.emit(
             "chat message nsp2",
             input.value,
             targetName,
-            clientOffset,
-            username
+            clientOffset
           );
           input.value = "";
         } else {
@@ -238,21 +198,9 @@
         }
       });
 
-      toggleButton.addEventListener("click", (e) => {
-        e.preventDefault();
-        if (nsp2Socket.connected) {
-          toggleButton.innerText = "Connect";
-          nsp2Socket.disconnect();
-        } else {
-          toggleButton.innerText = "Disconnect";
-          nsp2Socket.connect();
-        }
-      });
-
       // Namespace event
       nsp2Socket.on("chat message nsp2", (data, serverOffset) => {
-        console.log("🚀 ~ serverOffset:", serverOffset);
-        console.log("message front: " + JSON.stringify(data));
+        console.log("message front: " + data);
         const { content, senderName, targetName } = data;
         const isRelevant =
           !targetName || // Broadcast message
@@ -266,13 +214,12 @@
         //Server delivery connectionStateRecovery
         nsp2Socket.auth.serverOffset = serverOffset;
       });
-
       function addMessageToDOM(content, senderName, targetName) {
         const item = document.createElement("li");
 
         let messageText = "";
         if (targetName) {
-          messageText = `[Private] ${senderName} → ${targetName}: ${content}`;
+          messageText = `${senderName} → ${targetName}: ${content}`;
           // Color code based on whether we're sender or receiver
           if (senderName === username) {
             item.className = "sent";
@@ -280,7 +227,7 @@
             item.className = "received";
           }
         } else {
-          messageText = `[Public] ${senderName}: ${content}`;
+          messageText = `${senderName}: ${content}`;
         }
 
         item.textContent = messageText;
