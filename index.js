@@ -18,8 +18,15 @@ async function initDB() {
         content TEXT,
         targetName TEXT,
         senderName TEXT,
-        namespace TEXT
+        namespace TEXT,
+        created_at INTEGER DEFAULT (strftime('%s', 'now'))
+
     );
+    -- Add indexes for faster queries
+  CREATE INDEX IF NOT EXISTS idx_namespace ON messages(namespace);
+  CREATE INDEX IF NOT EXISTS idx_target ON messages(targetName);
+  CREATE INDEX IF NOT EXISTS idx_sender ON messages(senderName);
+  CREATE INDEX IF NOT EXISTS idx_created ON messages(created_at);
   `);
   await db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -27,25 +34,30 @@ async function initDB() {
       username TEXT UNIQUE,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
-`);
+  `);
+  // Enable WAL mode for better concurrent access
+  await db.exec("PRAGMA journal_mode=WAL");
+  await db.exec("PRAGMA synchronous=NORMAL"); // Faster writes
+  await db.exec("PRAGMA cache_size=10000"); // Larger cache
   return db;
 }
 
 if (cluster.isPrimary) {
-  const numCPUs = Math.min(availableParallelism(), 4);
-  // create one worker per available core
-  for (let i = 0; i < numCPUs; i++) {
-    cluster.fork({
-      PORT: 3000 + i,
-    });
-  }
+  // set up the adapter on the primary BEFORE forking
+  setupPrimary();
 
-  // set up the adapter on the primary thread
-  return setupPrimary();
+  const numCPUs = Math.min(availableParallelism(), 4);
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork({ PORT: 3000 + i });
+  }
+  return; // primary exits main(); workers run it
 }
 
 async function main() {
   const db = await initDB();
+  const insertMessageStmt = await db.prepare(
+    "INSERT INTO messages (content, client_offset, targetName, senderName, namespace) VALUES (?, ?, ?, ?, ?)"
+  );
   await db.exec("PRAGMA journal_mode=WAL");
 
   const app = express();
@@ -56,6 +68,9 @@ async function main() {
     connectionStateRecovery: {},
     // set up the adapter on each worker thread
     adapter: createAdapter(),
+    // Add sticky session support
+    transports: ["websocket", "polling"],
+    allowEIO3: true,
   });
   //Namespaces
 
@@ -67,35 +82,41 @@ async function main() {
   // io.of("/users").on("connection", (socket) => {
   //   socket.on("user:list", () => {});
   // });
-
-  const nps1 = io.of("/test1");
-  const nps2 = io.of("/test2");
+  // const nsp0 = io.of("/test-0");
+  // const nps1 = io.of("/test-1");
+  // const nps2 = io.of("/test-2");
+  const dynamicNsp = io.of(/^\/test-\d+$/);
 
   // const nps3 = io.of("/test3");
   const userSockets = new Map(); // socketId -> username
 
   // //Namespaces
-  nps1.on("connection", (socket) => {
-    console.log(`[io] connected ${socket.id} to nps1`);
-    socket.on("disconnect", () => {
-      console.log("User disconnected from /test1");
-    });
-    socket.emit("welcome", "Welcome to the test1 namespace!");
+  // nps1.on("connection", (socket) => {
+  //   console.log(`[io] connected ${socket.id} to nps1`);
+  //   socket.on("disconnect", () => {
+  //     console.log("User disconnected from /test-1");
+  //   });
+  //   socket.emit("welcome", "Welcome to the test-1 namespace!");
 
-    socket.on("chatMessage", (content) => {
-      console.log("Chat message:", content);
-      // Broadcast to everyone in /chat
-      nps1.emit("chatMessage", {content});
-    });
+  //   socket.on("chatMessage", (content) => {
+  //     console.log("Chat message:", content);
+  //     // Broadcast to everyone in /chat
+  //     nps1.emit("chatMessage", { content });
+  //   });
+  // });
 
-  });
+  dynamicNsp.on("connection", async (socketNsp2) => {
+    const namespace = socketNsp2.nsp;
+    const nsName = namespace.name; // e.g. "/test-2"
+    // if (cluster.worker.id === 1) {
+    //   // Only first worker logs
+    console.log(`[ws] connected ${socketNsp2.id} on ${nsName}`);
+    // }
 
-  nps2.on("connection", async (socketNsp2) => {
     let currentUsername = null;
-
-    socketNsp2.on("login", async (userName) => {
+    socketNsp2.on("login", async (userName, callback) => {
       console.log(`user ${userName} login`);
-      currentUsername  = userName;
+      currentUsername = userName;
       userSockets.set(socketNsp2.id, userName);
 
       socketNsp2.join(userName);
@@ -103,8 +124,11 @@ async function main() {
       await db.run("INSERT OR IGNORE INTO users (username) VALUES (?)", [
         userName,
       ]);
-      console.log(`[io] connected ${userName} to nps2`);
-      socketNsp2.emit("welcome", "Welcome to the test2 panel!");
+      // if (cluster.worker.id === 1) {
+      //   // Only first worker logs
+      //   console.log(`[io] connected ${userName} to nps2`);
+      // }
+      namespace.emit("welcome", "Welcome to the test-2 panel!");
       // await db.exec("DROP TABLE IF EXISTS messages;");
 
       const filtredMsg = await db.all(
@@ -113,36 +137,64 @@ async function main() {
        WHERE namespace = ?
        AND (targetName = ? OR senderName = ? OR targetName IS NULL)
        ORDER BY id ASC`,
-        [nps2.name, userName, userName]
+        [nsName, userName, userName]
       );
-      console.log("get message filtredMsg: " + filtredMsg);
-
+      // if (cluster.worker.id === 1) {
+      //   // Only first worker logs
+      //   console.log("get message filtredMsg: " + filtredMsg);
+      // }
       const lastID =
         filtredMsg.length > 0 ? filtredMsg[filtredMsg.length - 1].id : null;
-      console.log("✅ nsp2 lastID respond:", lastID);
+      // if (cluster.worker.id === 1) {
+      //   // Only first worker logs
+      //   console.log("✅ nsp2 lastID respond:", lastID);
+      // }
       socketNsp2.emit("get msg", filtredMsg, lastID);
+      //  prevent crash on other workers
+      if (typeof callback === "function") callback("ok");
     });
 
     // socketNsp2.on("alert", (data) => {
-    //   console.log("test2 alert:", data);
-    //   nps2.emit("alert", `test2 says: ${data}`);
+    //   console.log("test-2 alert:", data);
+    //   nps2.emit("alert", `test-2 says: ${data}`);
     // });
 
     socketNsp2.on("disconnect", () => {
-      console.log(`user ${currentUsername} disconnected from /test2`);
+      console.log(`user ${currentUsername} disconnected from /test-2`);
       userSockets.delete(socketNsp2.id);
+      // callback("ok");
     });
 
+    socketNsp2.on("user typing", (username, targetName, callback) => {
+      console.log("Key pressed typing : ", username);
+
+      if (targetName) {
+        namespace.to(targetName).emit("user typing", username);
+      } else {
+        socketNsp2.broadcast.emit("user typing", username);
+      }
+      callback("ok");
+    });
+    // socketNsp2.on("stop typing", (username, callback) => {
+    //   console.log("close typing : ", username);
+    //   socketNsp2.broadcast.emit("stop typing", username);
+    //   callback("ok");
+    // });
     socketNsp2.on(
       "chat message nsp2",
-      async (msg, targetName, clientOffset, namespace, callback) => {
-        console.log("✅ nsp2 msg respond:", {
-          msg,
-          targetName,
-          clientOffset,
-          namespace,
-        });
-        const senderName = userSockets.get(socketNsp2.id);
+      async (msg, targetName, clientOffset, username, callback) => {
+        // if (cluster.worker.id === 1) {
+        //   // Only first worker logs
+        //   console.log("✅ nsp2 msg respond:", {
+        //     msg,
+        //     targetName,
+        //     clientOffset,
+        //     namespace: nsName,
+        //   });
+        // }
+        const senderName = userSockets.get(socketNsp2.id) || username;
+        console.log("message front: " + JSON.stringify(senderName));
+
         if (!senderName) {
           console.log("user not logged in");
           return;
@@ -155,43 +207,80 @@ async function main() {
           // await db.exec(`ALTER TABLE messages ADD COLUMN senderName TEXT;`);
 
           // // store the message in the database
-          result = await db.run(
-            "INSERT INTO messages (content, client_offset, targetName, senderName, namespace ) VALUES (?, ?, ?, ?, ?)",
+          result = await insertMessageStmt.run(
             msg,
             clientOffset,
             targetName,
             senderName,
-            namespace
+            nsName
           );
+          callback("got it");
+
           console.log("🚀 ~ result:", result);
         } catch (e) {
           if (e.errno === 19 /* SQLITE_CONSTRAINT */) {
             // console.log("duplicate message, skipping");
           }
           // the message was already inserted, so we notify the client
-          // callback("got it");
+          callback("got it");
           return;
         }
-        const lastMsg = await db.get(
-          "SELECT id, content, namespace, targetName, senderName FROM messages WHERE id = ?",
-          [result.lastID]
-        );
+        const lastMsg = {
+          id: result.lastID,
+          content: msg,
+          targetName,
+          senderName,
+          namespace: nsName,
+        };
         if (targetName) {
           //Join room with targetName to see the msg from the sender
           console.log(`sending msg to ${targetName} from ${senderName}`);
 
-          nps2.to(targetName).emit("chat message nsp2", lastMsg, lastMsg.id);
-          if (targetName !== senderName) {
-            socketNsp2.emit("chat message nsp2", lastMsg, lastMsg.id);
-          }
+          namespace
+            .to([targetName, senderName])
+            .emit("chat message nsp2", lastMsg, lastMsg.id);
+          // if (targetName !== senderName) {
+          //   namespace.emit("chat message nsp2", lastMsg, lastMsg.id);
+          // }
           // io.except(userId).emit("chat message", msg);
           // socket.leave(targetName);
+          callback("got it");
         } else {
           // Broadcast message: send to everyone
-          nps2.emit("chat message nsp2", lastMsg, lastMsg.id);
+          namespace.emit("chat message nsp2", lastMsg, lastMsg.id);
+          callback("got it");
         }
+        ///Client delivery
+        if (!socketNsp2.recovered) {
+          // if the connection state recovery was not successful
+          try {
+            await db.each(
+              "SELECT id, content, targetName, senderName, namespace FROM messages WHERE id > ?",
+              [nsp2Socket.handshake.auth.serverOffset || 0],
+              (_err, row) => {
+                const id = row.id;
+                const content = row.content;
+                const targetName = row.targetName;
+                const senderName = row.senderName;
+                const namespace = row.namespace;
+                const isSender = senderName || username;
+                console.log(`sending msg to ${targetName} from ${msg}`);
 
-        // callback("got it");
+                socket.emit("chat message nsp2", {
+                  id,
+                  content,
+                  targetName,
+                  isSender,
+                  namespace,
+                });
+              }
+            );
+          } catch (e) {
+            // something went wrong
+          }
+        }
+        // prevent crash on other workers
+        if (typeof callback === "function") callback("ok");
       }
     );
   });
@@ -199,13 +288,13 @@ async function main() {
   app.get("/", (req, res) => {
     res.sendFile(join(__dirname, "login.html"));
   });
-  app.get("/test", (req, res) => {
+  app.get("/test-0", (req, res) => {
     res.sendFile(join(__dirname, "index.html"));
   });
-  app.get("/test1", (req, res) => {
+  app.get("/test-1", (req, res) => {
     res.sendFile(join(__dirname, "nsp1.html"));
   });
-  app.get("/test2", (req, res) => {
+  app.get("/test-2", (req, res) => {
     res.sendFile(join(__dirname, "nsp2.html"));
   });
   io.on("connection", async (socket) => {
@@ -239,7 +328,7 @@ async function main() {
         let result;
         try {
           // store the message in the database
-          result = await db.run(
+          result = db.run(
             "INSERT INTO messages (content, client_offset) VALUES (?, ?)",
             msg,
             clientOffset
@@ -270,21 +359,23 @@ async function main() {
       }
     );
 
-    if (!socket.recovered) {
-      // if the connection state recovery was not successful
+    if (!socketNsp2.recovered) {
       try {
-        await db.each(
-          "SELECT id, content FROM messages WHERE id > ?",
-          [socket.handshake.auth.serverOffset || 0],
-          (_err, row) => {
-            const id = row.id;
-            const msg = row.content;
-
-            socket.emit("chat message", { id, msg });
-          }
+        const since = Number(socketNsp2.handshake.auth.serverOffset || 0);
+        const rows = await db.all(
+          `SELECT id, content, targetName, senderName, namespace
+         FROM messages
+        WHERE id > ?
+          AND namespace = ?
+          AND (targetName IS NULL OR targetName = ? OR senderName = ?)
+        ORDER BY id ASC`,
+          [since, nsName, currentUsername, currentUsername]
         );
+        for (const row of rows) {
+          socketNsp2.emit("chat message nsp2", row, row.id);
+        }
       } catch (e) {
-        // something went wrong
+        console.log("Clients recovered err");
       }
     }
     //Basic emit

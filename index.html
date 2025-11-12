@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-    <title>Socket.IO chat</title>
+    <title>Socket.IO /link Chat</title>
     <style>
       body {
         margin: 0;
@@ -10,7 +10,6 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           Helvetica, Arial, sans-serif;
       }
-
       #form {
         background: rgba(0, 0, 0, 0.15);
         padding: 0.25rem;
@@ -30,6 +29,32 @@
         border-radius: 2rem;
         margin: 0.25rem;
       }
+      #form > button {
+        background: #333;
+        border: none;
+        padding: 0 1rem;
+        margin: 0.25rem;
+        border-radius: 3px;
+        outline: none;
+        color: #fff;
+      }
+      #messages {
+        list-style-type: none;
+        margin: 5rem 0 0 0;
+        padding: 1.5rem 0;
+      }
+      #messages > li {
+        padding: 0.5rem 1rem;
+      }
+      #messages > li:nth-child(odd) {
+        background: #efefef;
+      }
+      #messages > li.sent {
+        background: #d4edda;
+      }
+      #messages > li.received {
+        background: #d1ecf1;
+      }
       #form1 {
         background: rgba(0, 0, 0, 0.15);
         padding: 0.25rem;
@@ -40,233 +65,227 @@
         height: 3rem;
         box-sizing: border-box;
         backdrop-filter: blur(10px);
-        position: relative;
+        position: fixed;
       }
-
-      #inputTest {
+      #targetInput {
         border: none;
         padding: 0 1rem;
         flex-grow: 1;
         border-radius: 2rem;
         margin: 0.25rem;
       }
-      #input:focus {
-        outline: none;
-      }
-      #form > button {
-        background: #333;
-        border: none;
-        padding: 0 1rem;
-        margin: 0.25rem;
-        border-radius: 3px;
-        outline: none;
-        color: #fff;
-      }
-
-      #messages {
-        list-style-type: none;
-        margin: 0;
-        padding: 0;
-      }
-      #messages > li {
+      #userInfo {
+        position: fixed;
+        top: 3.5rem;
+        left: 0;
+        right: 0;
+        background: #f0f0f0;
         padding: 0.5rem 1rem;
+        text-align: center;
+        font-weight: bold;
       }
-      #messages > li:nth-child(odd) {
-        background: #efefef;
+      #typing {
+        position: fixed;
+        bottom: 3.5rem;
+        left: 0;
+        right: 0;
+        background: #f0f0f0;
+        padding: 0.5rem 1rem;
+        text-align: center;
+        font-weight: bold;
+      }
+      #mainBtn {
+        position: fixed;
+        right: 0;
+        padding: 0 10px;
+        margin-top: 2rem;
+        background: #f5f5f5;
+        color: #333;
+        text-decoration: none;
       }
     </style>
   </head>
   <body>
-    <a href="/" id="mainBtn">Connect to /main chat</a>
-    <a href="/test1" id="nps1Btn">Connect to /nps1</a>
-    <a href="/test2" id="nps2Btn">Connect to /nps2</a>
-    <!-- <div id="output"></div> -->
-    <form id="form1" action="">
-      <input id="inputTest" autocomplete="off" placeholder="userId" />
-    </form>
+    <div id="form1">
+      <input
+        id="targetInput"
+        autocomplete="off"
+        placeholder="Target Name (leave empty for broadcast)"
+      />
+    </div>
+    <div id="userInfo">Not logged in</div>
+    <a href="/" id="mainBtn">Go back to login</a>
     <ul id="messages"></ul>
     <form id="form" action="">
-      <input id="input" autocomplete="off" /><button>Send</button>
+      <label id="typing"></label>
+      <input id="input" autocomplete="off" placeholder="Type message..." />
+      <button>Send</button>
       <button id="toggle-btn">Disconnect</button>
     </form>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-      // Client delivery
+      const messages = document.getElementById("messages");
+      const input = document.getElementById("input");
+      const form = document.getElementById("form");
+      const typingLabel = document.getElementById("typing");
+      const targetInput = document.getElementById("targetInput");
+      const userInfo = document.getElementById("userInfo");
+      const toggleButton = document.getElementById("toggle-btn");
 
-      let counter = 0;
-      let count = 0;
+      // Get username from URL parameter or localStorage
+      // const urlParams = new URLSearchParams(window.location.search);
+      const username = localStorage.getItem("username");
 
-      //Server delivery connectionStateRecovery
-      const socket = io({
+      if (!username) {
+        alert("Please login first!");
+        window.location.href = "/";
+      }
+      localStorage.setItem("username", username);
+      userInfo.textContent = `Logged in as: ${username}`;
+
+      console.log("🚀 ~ senderInput:", username);
+      // Base /link namespace connection
+      const nsp2Socket = io("/test-0", {
         auth: {
           serverOffset: 0,
+          username: username,
         },
         // Client delivery
         // enable retries
+        //no callback, the client never receives an “OK” from the server, so Socket.IO retries 3 times, and i get 4 logs and lose performance and time;
+        // if i need Client delivery i shoud enable retries and give acknowledgement  callback from the server
         ackTimeout: 10000,
         retries: 3,
       });
 
-      // setInterval(() => {
-      //   socket.volatile.emit("ping send", ++count);
-      // }, 1000);
-
-      //Namespaces
-      // const nps1 = io("/test1");
-      // const nps2 = io("/test2");
-      let nps1Socket;
-      let nps2Socket;
-
-      // const socket1 = io("http://localhost:3000/test1", { forceNew: false  });
-      // const socket2 = io("http://localhost:3000/test2", { forceNew: false  });
-
-      // Acknowledgements With a Promise
-      async function sendRequest() {
-        try {
-          const response = await socket
-            .timeout(5000)
-            .emitWithAck("requestB", { foo: "bar" }, "baz");
-          console.log("requestB : ", response.status);
-        } catch (e) {
-          console.error("⛔ Timeout or no acknowledgment from server:", e);
+      let hasLoggedIn = false;
+      nsp2Socket.on("connect", () => {
+        console.log("Connected to /nsp2:", nsp2Socket.id);
+        if (!hasLoggedIn) {
+          nsp2Socket.emit("login", username, (response) => {
+            console.log("user logged", response);
+          });
+          hasLoggedIn = true;
+          nsp2Socket.on("get msg", (data, serverOffset) => {
+            console.log("get message front: ", data);
+            messages.innerHTML = "";
+            data.forEach((el) => {
+              const isRelevant =
+                !el.targetName || // Broadcast message
+                el.targetName === username || // Message sent to me
+                el.senderName === username; // Message I sent
+              if (isRelevant) {
+                addMessageToDOM(el.content, el.senderName, el.targetName);
+              }
+            });
+            window.scrollTo(0, document.body.scrollHeight);
+            //Server delivery connectionStateRecovery
+            nsp2Socket.auth.serverOffset = serverOffset;
+          });
+          console.log("🚀 ~ hasLoggedIn:", hasLoggedIn);
         }
-      }
-
-      sendRequest();
-
-      socket.on("connect", () => {
-        console.log("Connected:", socket.id);
       });
-      const form = document.getElementById("form");
-      const input = document.getElementById("input");
-      const input1 = document.getElementById("inputTest");
-      const messages = document.getElementById("messages");
-      const toggleButton = document.getElementById("toggle-btn");
-      const output = document.getElementById("output");
 
-      document.getElementById("nps1Btn").onclick = () => {
-        if (nps2Socket && nps2Socket.connected) {
-          nps2Socket.disconnect();
-          output.innerHTML += `<p>[nps2] disconnected</p>`;
-        }
-        if (socket.connected) {
-          toggleButton.innerText = "Connect";
-          socket.disconnect();
-          output.innerHTML += `<p>[Main Chat] disconnected</p>`;
-        }
+      nsp2Socket.on("disconnect", () => {
+        hasLoggedIn = false; // Reset on disconnect
+        console.log("🚀 ~ hasLoggedIn:", hasLoggedIn);
+      });
 
-        if (!nps1Socket || !nps1Socket.connected) {
-          nps1Socket = io("/test1");
-          nps1Socket.on("welcome", (msg) => {
-            output.innerHTML += `<p>[nps1] ${msg}</p>`;
-          });
-        } else {
-          output.innerHTML += `<p>[nps1] already connected</p>`;
-        }
-      };
+      let counter = 0;
+      input.addEventListener("keydown", function (e) {
+        // e.preventDefault();
 
-      document.getElementById("nps2Btn").onclick = () => {
-        // 👇 disconnect from /test1 first if needed
-        if (nps1Socket && nps1Socket.connected) {
-          nps1Socket.disconnect();
-          output.innerHTML += `<p>[nps1] disconnected</p>`;
-        }
-        if (socket.connected) {
-          toggleButton.innerText = "Connect";
-          socket.disconnect();
-          output.innerHTML += `<p>[Main Chat] disconnected</p>`;
-        }
-        // then connect to /test2
-        if (!nps2Socket || !nps2Socket.connected) {
-          nps2Socket = io("/test2");
-          nps2Socket.on("welcome", (msg) => {
-            output.innerHTML += `<p>[nps2] ${msg}</p>`;
-          });
-        } else {
-          output.innerHTML += `<p>[nps2] already connected</p>`;
-        }
-      };
-
+        console.log("Key pressed:", e.key);
+        //Send to Everyone Except Sender
+        nsp2Socket.emit("user typing", username, targetInput.value);
+      });
+      // input.addEventListener("keyup", function (event) {
+      //   console.log("Key up:", event.key);
+      //   // nsp2Socket.of("user typing");
+      //   typingTimeout = setTimeout(() => {
+      //     nsp2Socket.emit("stop typing", username);
+      //   }, 1000);
+      //   typingLabel.innerHTML = "";
+      // });
+      nsp2Socket.on("user typing", (typingUser) => {
+        typingLabel.innerHTML = `${typingUser} typing...`;
+        typingTimeout = setTimeout(() => {
+          typingLabel.innerHTML = "";
+        }, 2000);
+      });
+      // nsp2Socket.on("stop typing", (user) => {
+      //   typingLabel.innerHTML = "";
+      // });
+      // Send message to /nsp2
       form.addEventListener("submit", (e) => {
         e.preventDefault();
-        if (input.value && input1.value) {
-          const clientOffset = `${socket.id}-${counter++}`;
+        const clientOffset = `${nsp2Socket.id}-${counter++}`;
+        const targetName = targetInput.value.trim() || null;
+        if (input.value) {
+          console.log(`sending msg from ${username}`);
 
-          socket.emit(
-            "chat message",
+          nsp2Socket.emit(
+            "chat message nsp2",
             input.value,
-            input1.value,
+            targetName,
             clientOffset,
-            (response) => {
-              console.log("Client : ", response);
-            }
+            username
           );
           input.value = "";
         } else {
-          const clientOffset = `${socket.id}-${counter++}`;
-          socket.emit(
-            "chat message",
-            input.value,
-            null,
-            clientOffset,
-            (response) => {
-              console.log("Client : ", response);
-            }
-          );
-          // Client delivery
-          // compute a unique offset
-          input.value = "";
-          console.log("🚀 auth ~ serverOffset:", socket.auth);
+          alert("empty msg");
         }
       });
 
       toggleButton.addEventListener("click", (e) => {
         e.preventDefault();
-        if (nps1Socket && nps1Socket.connected) {
-          nps1Socket.disconnect();
-          output.innerHTML += `<p>[nps1] disconnected</p>`;
-        }
-        if (nps2Socket && nps2Socket.connected) {
-          nps2Socket.disconnect();
-          output.innerHTML += `<p>[nps2] disconnected</p>`;
-        }
-        if (socket.connected) {
+        if (nsp2Socket.connected) {
           toggleButton.innerText = "Connect";
-          socket.disconnect();
+          nsp2Socket.disconnect();
         } else {
           toggleButton.innerText = "Disconnect";
-          socket.connect();
-          output.innerHTML += `<p>[Main Chat] connected</p>`;
+          nsp2Socket.connect();
         }
       });
 
-      socket.on("chat message", (data, serverOffset) => {
-        console.log("message front: " + data);
-        const { id, msg } = data;
-        const item = document.createElement("li");
-        item.textContent = msg;
-        messages.appendChild(item);
-        window.scrollTo(0, document.body.scrollHeight);
+      // Namespace event
+      nsp2Socket.on("chat message nsp2", (data, serverOffset) => {
+        console.log("🚀 ~ serverOffset:", serverOffset);
+        console.log("message front: " + JSON.stringify(data));
+        const { content, senderName, targetName } = data;
+        const isRelevant =
+          !targetName || // Broadcast message
+          targetName === username || // Message sent to me
+          senderName === username; // Message I sent
+
+        if (isRelevant) {
+          addMessageToDOM(content, senderName, targetName);
+          window.scrollTo(0, document.body.scrollHeight);
+        }
         //Server delivery connectionStateRecovery
-        socket.auth.serverOffset = serverOffset;
-      });
-      //Basic emit
-      socket.emit("hello", 1, "2", { 3: "4", 5: Uint8Array.from([6]) });
-      //Acknowledgements
-      socket.on("request", (arg1, arg2, callback) => {
-        console.log(arg1); // { foo: 'bar' }
-        console.log(arg2); // 'baz'
-        callback({
-          status: "ok",
-        });
+        nsp2Socket.auth.serverOffset = serverOffset;
       });
 
-      //Broadcasting
-      socket.on("user joined", (data, callback) => {
-        console.log("user joined", data.id);
-        callback(`Welcome ${data.id}!`);
-      });
+      function addMessageToDOM(content, senderName, targetName) {
+        const item = document.createElement("li");
+
+        let messageText = "";
+        if (targetName) {
+          messageText = `[Private] ${senderName} → ${targetName}: ${content}`;
+          // Color code based on whether we're sender or receiver
+          if (senderName === username) {
+            item.className = "sent";
+          } else {
+            item.className = "received";
+          }
+        } else {
+          messageText = `[Public] ${senderName}: ${content}`;
+        }
+
+        item.textContent = messageText;
+        messages.appendChild(item);
+      }
     </script>
   </body>
 </html>

@@ -40,7 +40,7 @@
       }
       #messages {
         list-style-type: none;
-        margin: 2rem 0 0 0;
+        margin: 5rem 0 0 0;
         padding: 1.5rem 0;
       }
       #messages > li {
@@ -133,86 +133,108 @@
 
       console.log("🚀 ~ senderInput:", username);
       // Base /link namespace connection
-      const nsp1Socket = io("/test1", {
+      const nsp2Socket = io("/test-1", {
         auth: {
           serverOffset: 0,
           username: username,
         },
         // Client delivery
         // enable retries
-        ackTimeout: 10000,
-        retries: 3,
+        // ackTimeout: 10000,
+        // retries: 3,
       });
 
-      nsp1Socket.on("connect", () => {
-        console.log("Connected to /nsp2:", nsp1Socket.id);
-        nsp1Socket.emit("login", username);
+      let hasLoggedIn = false;
+      nsp2Socket.on("connect", () => {
+        console.log("Connected to /nsp2:", nsp2Socket.id);
+        if (!hasLoggedIn) {
+          nsp2Socket.emit("login", username, (response) => {
+            console.log("user logged", response);
+          });
+          hasLoggedIn = true;
+          nsp2Socket.on("get msg", (data, serverOffset) => {
+            console.log("get message front: ", data);
+            messages.innerHTML = "";
+            data.forEach((el) => {
+              const isRelevant =
+                !el.targetName || // Broadcast message
+                el.targetName === username || // Message sent to me
+                el.senderName === username; // Message I sent
+              if (isRelevant) {
+                addMessageToDOM(el.content, el.senderName, el.targetName);
+              }
+            });
+            window.scrollTo(0, document.body.scrollHeight);
+            //Server delivery connectionStateRecovery
+            nsp2Socket.auth.serverOffset = serverOffset;
+            console.log("nsp2Socket.auth /nsp2:", nsp2Socket.auth.username);
+          });
+          console.log("🚀 ~ hasLoggedIn:", hasLoggedIn);
+        }
       });
 
-      nsp1Socket.on("get msg", (data, serverOffset) => {
-        console.log("get message front: ", data);
-        messages.innerHTML = "";
-        data.forEach((el) => {
-          const isRelevant =
-            !el.targetName || // Broadcast message
-            el.targetName === username || // Message sent to me
-            el.senderName === username; // Message I sent
-          if (isRelevant) {
-            addMessageToDOM(el.content, el.senderName, el.targetName);
-          }
-        });
-        window.scrollTo(0, document.body.scrollHeight);
-        //Server delivery connectionStateRecovery
-        nsp1Socket.auth.serverOffset = serverOffset;
-        console.log("nsp1Socket.auth /nsp2:", nsp1Socket.auth.username);
+      nsp2Socket.on("disconnect", () => {
+        hasLoggedIn = false; // Reset on disconnect
+        console.log("🚀 ~ hasLoggedIn:", hasLoggedIn)
       });
 
       let counter = 0;
 
+      // Send message to /nsp2
       form.addEventListener("submit", (e) => {
         e.preventDefault();
-        if (input.value && targetInput.value) {
-          const clientOffset = `${nsp1Socket.id}-${counter++}`;
-
-          nsp1Socket.emit(
-            "chatMessage",
+        const clientOffset = `${nsp2Socket.id}-${counter++}`;
+        const targetName = targetInput.value.trim() || null;
+        if (input.value) {
+          nsp2Socket.emit(
+            "chat message nsp2",
             input.value,
-            targetInput.value,
-            clientOffset,
-            (response) => {
-              console.log("Client : ", response);
-            }
+            targetName,
+            clientOffset, (response) => {
+            console.log("emit msg", response);
+          }
           );
           input.value = "";
         } else {
-          const clientOffset = `${nsp1Socket.id}-${counter++}`;
-          nsp1Socket.emit(
-            "chatMessage",
-            input.value,
-            null,
-            clientOffset,
-            (response) => {
-              console.log("Client : ", response);
-            }
-          );
-          // Client delivery
-          // compute a unique offset
-          input.value = "";
-          console.log("🚀 auth ~ serverOffset:", nsp1Socket.auth);
+          alert("empty msg");
         }
       });
 
       // Namespace event
-      nsp1Socket.on("chatMessage", (data, serverOffset) => {
-        console.log("message front: " + JSON.stringify(data));
-        const { content } = data;
-        const item = document.createElement("li");
-        item.textContent = content;
-        messages.appendChild(item);
-        window.scrollTo(0, document.body.scrollHeight);
+      nsp2Socket.on("chat message nsp2", (data, serverOffset) => {
+        console.log("message front: " + data);
+        const { content, senderName, targetName } = data;
+        const isRelevant =
+          !targetName || // Broadcast message
+          targetName === username || // Message sent to me
+          senderName === username; // Message I sent
+
+        if (isRelevant) {
+          addMessageToDOM(content, senderName, targetName);
+          window.scrollTo(0, document.body.scrollHeight);
+        }
         //Server delivery connectionStateRecovery
-        nsp1Socket.auth.serverOffset = serverOffset;
+        nsp2Socket.auth.serverOffset = serverOffset;
       });
+      function addMessageToDOM(content, senderName, targetName) {
+        const item = document.createElement("li");
+
+        let messageText = "";
+        if (targetName) {
+          messageText = `${senderName} → ${targetName}: ${content}`;
+          // Color code based on whether we're sender or receiver
+          if (senderName === username) {
+            item.className = "sent";
+          } else {
+            item.className = "received";
+          }
+        } else {
+          messageText = `${senderName}: ${content}`;
+        }
+
+        item.textContent = messageText;
+        messages.appendChild(item);
+      }
     </script>
   </body>
 </html>

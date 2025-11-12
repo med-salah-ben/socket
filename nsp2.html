@@ -40,7 +40,7 @@
       }
       #messages {
         list-style-type: none;
-        margin: 2rem 0 0 0;
+        margin: 5rem 0 0 0;
         padding: 1.5rem 0;
       }
       #messages > li {
@@ -133,38 +133,49 @@
 
       console.log("🚀 ~ senderInput:", username);
       // Base /link namespace connection
-      const nsp2Socket = io("/test2", {
+      const nsp2Socket = io("/test-2", {
         auth: {
           serverOffset: 0,
           username: username,
         },
         // Client delivery
         // enable retries
-        ackTimeout: 10000,
-        retries: 3,
+        // ackTimeout: 10000,
+        // retries: 3,
       });
 
+      let hasLoggedIn = false;
       nsp2Socket.on("connect", () => {
         console.log("Connected to /nsp2:", nsp2Socket.id);
-        nsp2Socket.emit("login", username);
+        if (!hasLoggedIn) {
+          nsp2Socket.emit("login", username, (response) => {
+            console.log("user logged", response);
+          });
+          hasLoggedIn = true;
+          nsp2Socket.on("get msg", (data, serverOffset) => {
+            console.log("get message front: ", data);
+            messages.innerHTML = "";
+            data.forEach((el) => {
+              const isRelevant =
+                !el.targetName || // Broadcast message
+                el.targetName === username || // Message sent to me
+                el.senderName === username; // Message I sent
+              if (isRelevant) {
+                addMessageToDOM(el.content, el.senderName, el.targetName);
+              }
+            });
+            window.scrollTo(0, document.body.scrollHeight);
+            //Server delivery connectionStateRecovery
+            nsp2Socket.auth.serverOffset = serverOffset;
+            console.log("nsp2Socket.auth /nsp2:", nsp2Socket.auth.username);
+          });
+          console.log("🚀 ~ hasLoggedIn:", hasLoggedIn);
+        }
       });
 
-      nsp2Socket.on("get msg", (data, serverOffset) => {
-        console.log("get message front: ", data);
-        messages.innerHTML = "";
-        data.forEach((el) => {
-          const isRelevant =
-            !el.targetName || // Broadcast message
-            el.targetName === username || // Message sent to me
-            el.senderName === username; // Message I sent
-          if (isRelevant) {
-            addMessageToDOM(el.content, el.senderName, el.targetName);
-          }
-        });
-        window.scrollTo(0, document.body.scrollHeight);
-        //Server delivery connectionStateRecovery
-        nsp2Socket.auth.serverOffset = serverOffset;
-        console.log("nsp2Socket.auth /nsp2:", nsp2Socket.auth.username);
+      nsp2Socket.on("disconnect", () => {
+        hasLoggedIn = false; // Reset on disconnect
+        console.log("🚀 ~ hasLoggedIn:", hasLoggedIn)
       });
 
       let counter = 0;
@@ -179,12 +190,11 @@
             "chat message nsp2",
             input.value,
             targetName,
-            clientOffset,
-            "/test2"
+            clientOffset
           );
           input.value = "";
-        }else{
-          alert("empty msg")
+        } else {
+          alert("empty msg");
         }
       });
 

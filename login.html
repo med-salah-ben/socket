@@ -95,21 +95,22 @@
     <div class="container">
       <h1>Welcome to Socket.IO Chat</h1>
       <form id="sender-form">
-        <input 
-          id="senderInput" 
-          autocomplete="off" 
-          placeholder="Enter your username" 
+        <input
+          id="senderInput"
+          autocomplete="off"
+          placeholder="Enter your username"
           required
           minlength="2"
         />
-        <button type="submit">Login</button>
+        <button id="login-btn" type="submit">Login</button>
+
         <div class="error" id="error">Please enter a valid username</div>
       </form>
       <div class="nav-links">
-        <h3>Or visit:</h3>
-        <a href="/test" id="mainBtn">Main Chat</a>
-        <a href="/test1" id="nps1Btn">Test1 Namespace</a>
-        <a href="/test2" id="nps1Btn">Test2 Namespace</a>
+        <h3>Visit:</h3>
+        <a href="/test-0" id="mainBtn">Main Chat</a>
+        <a href="/test-1" id="nps1Btn">Test1 Namespace</a>
+        <a href="/test-2" id="nps1Btn">Test2 Namespace</a>
       </div>
     </div>
 
@@ -117,35 +118,45 @@
     <script>
       const senderInput = document.getElementById("senderInput");
       const form = document.getElementById("sender-form");
+      const loginBtn = document.getElementById("login-btn");
       const errorDiv = document.getElementById("error");
 
+      let islogged = false;
       // Check if already logged in
-      const storedUsername = localStorage.getItem('username');
+      const storedUsername = localStorage.getItem("username");
       if (storedUsername) {
         senderInput.value = storedUsername;
+        loginBtn.innerHTML = "Logout";
+      } else {
+        loginBtn.innerHTML = "Login";
       }
 
       form.addEventListener("submit", (e) => {
         e.preventDefault();
-        
+
         const username = senderInput.value.trim();
-        
+
         if (username.length < 2) {
-          errorDiv.style.display = 'block';
-          errorDiv.textContent = 'Username must be at least 2 characters';
+          errorDiv.style.display = "block";
+          errorDiv.textContent = "Username must be at least 2 characters";
           return;
         }
-
-        // Store username
-        localStorage.setItem('username', username);
-        
-        // Redirect to test2 with username parameter
-        window.location.href = `/test2?username=${encodeURIComponent(username)}`;
+        if (localStorage.getItem("username")) {
+          localStorage.removeItem("username");          
+          senderInput.value = "";
+          loginBtn.innerHTML = "Login";
+          console.log("🚀 ~ storedUsername remove:", storedUsername);
+        } else {
+          // Store username
+          localStorage.setItem("username", username);
+          loginBtn.innerHTML = "Logout";
+          console.log("🚀 ~ storedUsername set:", storedUsername);
+        }
       });
 
       // Hide error on input
       senderInput.addEventListener("input", () => {
-        errorDiv.style.display = 'none';
+        errorDiv.style.display = "none";
       });
     </script>
   </body>
