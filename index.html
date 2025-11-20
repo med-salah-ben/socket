@@ -226,7 +226,7 @@
           console.log(`sending msg from ${username}`);
 
           nsp2Socket.emit(
-            "chat message nsp2",
+            "chat message nsp2" + username,
             input.value,
             targetName,
             clientOffset,
@@ -250,7 +250,7 @@
       });
 
       // Namespace event
-      nsp2Socket.on("chat message nsp2", (data, serverOffset) => {
+      nsp2Socket.on("chat message nsp2" + username, (data, serverOffset) => {
         console.log("🚀 ~ serverOffset:", serverOffset);
         console.log("message front: " + JSON.stringify(data));
         const { content, senderName, targetName } = data;

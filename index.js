@@ -110,7 +110,7 @@ async function main() {
     const nsName = namespace.name; // e.g. "/test-2"
     // if (cluster.worker.id === 1) {
     //   // Only first worker logs
-    console.log(`[ws] connected ${socketNsp2.id} on ${nsName}`);
+    // console.log(`[ws] connected ${socketNsp2.id} on ${nsName}`);
     // }
 
     let currentUsername = null;
@@ -118,6 +118,9 @@ async function main() {
       console.log(`user ${userName} login`);
       currentUsername = userName;
       userSockets.set(socketNsp2.id, userName);
+      console.log(
+        `[ws] ${socketNsp2.handshake.auth.username} on ${socketNsp2.handshake.auth.serverOffset}`
+      );
 
       socketNsp2.join(userName);
 
@@ -181,7 +184,7 @@ async function main() {
     //   callback("ok");
     // });
     socketNsp2.on(
-      "chat message nsp2",
+      "chat message nsp2" + socketNsp2.handshake.auth.username,
       async (msg, targetName, clientOffset, username, callback) => {
         // if (cluster.worker.id === 1) {
         //   // Only first worker logs
@@ -238,7 +241,7 @@ async function main() {
 
           namespace
             .to([targetName, senderName])
-            .emit("chat message nsp2", lastMsg, lastMsg.id);
+            .emit("chat message nsp2" + socketNsp2.handshake.auth.username, lastMsg, lastMsg.id);
           // if (targetName !== senderName) {
           //   namespace.emit("chat message nsp2", lastMsg, lastMsg.id);
           // }
@@ -247,7 +250,7 @@ async function main() {
           callback("got it");
         } else {
           // Broadcast message: send to everyone
-          namespace.emit("chat message nsp2", lastMsg, lastMsg.id);
+          namespace.emit("chat message nsp2" + socketNsp2.handshake.auth.username, lastMsg, lastMsg.id);
           callback("got it");
         }
         ///Client delivery
@@ -266,7 +269,7 @@ async function main() {
                 const isSender = senderName || username;
                 console.log(`sending msg to ${targetName} from ${msg}`);
 
-                socket.emit("chat message nsp2", {
+                socket.emit("chat message nsp2" + socketNsp2.handshake.auth.username, {
                   id,
                   content,
                   targetName,
@@ -372,7 +375,7 @@ async function main() {
           [since, nsName, currentUsername, currentUsername]
         );
         for (const row of rows) {
-          socketNsp2.emit("chat message nsp2", row, row.id);
+          socketNsp2.emit("chat message nsp2" + socketNsp2.handshake.auth.username, row, row.id);
         }
       } catch (e) {
         console.log("Clients recovered err");
